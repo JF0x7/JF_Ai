@@ -1,0 +1,117 @@
+pip install selenium webdriver-manager
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+import time
+import random
+
+# ================= CONFIG =================
+FB_EMAIL = "your_email@example.com"          # ← CHANGE
+FB_PASS  = "your_password_here"               # ← CHANGE (never commit this!)
+TARGET_PROFILE_URL = "https://www.facebook.com/someone.you.want.to.add"  # or list of them
+
+# People You May Know page (better source than random profiles)
+# PYMK_URL = "https://www.facebook.com/friends/requests/?fcref=jwl"   # old style, may redirect
+# Better: just navigate to home and click suggestions, or use search
+
+SLOW_MODE = True          # True = very human-like (recommended to avoid instant ban)
+MAX_REQUESTS = 15         # Keep tiny for first tests!!
+MIN_DELAY = 25            # seconds between actions
+MAX_DELAY = 90
+
+# ===========================================
+
+def human_delay(min_sec=3, max_sec=12):
+    time.sleep(random.uniform(min_sec, max_sec))
+
+def login(driver):
+    driver.get("https://www.facebook.com")
+    wait = WebDriverWait(driver, 30)
+    
+    try:
+        email_field = wait.until(EC.presence_of_element_located((By.ID, "email")))
+        email_field.send_keys(FB_EMAIL)
+        human_delay(1, 3)
+        
+        pass_field = driver.find_element(By.ID, "pass")
+        pass_field.send_keys(FB_PASS)
+        human_delay(1, 4)
+        
+        pass_field.send_keys(Keys.RETURN)
+        print("Login attempted — waiting for home page...")
+        
+        # Wait for home feed or profile redirect
+        wait.until(EC.url_contains("facebook.com") and not EC.url_contains("login"))
+        human_delay(8, 15)  # let it load fully
+        print("Logged in (probably).")
+    except Exception as e:
+        print("Login failed:", e)
+        print("→ You may need to handle 2FA/checkpoint manually in the browser.")
+        # For real use: pause here and solve captcha/2FA by hand, then continue
+
+def send_friend_request(driver, profile_url):
+    driver.get(profile_url)
+    wait = WebDriverWait(driver, 20)
+    
+    try:
+        # Wait for profile to load
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        human_delay(4, 10)
+        
+        # The "Add Friend" button XPath / selectors change often — this is fragile!
+        # Inspect element right before running to get current one
+        add_button = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@aria-label='Add friend' or contains(text(),'Add friend')]")
+        ))
+        
+        # Optional: scroll to make sure it's visible
+        driver.execute_script("arguments[0].scrollIntoView(true);", add_button)
+        human_delay(1, 3)
+        
+        add_button.click()
+        print(f"Sent request to: {profile_url}")
+        return True
+    except Exception as e:
+        print(f"Failed to send to {profile_url}: {e}")
+        # Could be: already friends, request sent, blocked, button not found, etc.
+        return False
+
+# ================= MAIN =================
+chrome_options = Options()
+chrome_options.add_argument("--disable-notifications")
+chrome_options.add_argument("--start-maximized")      # non-headless!
+# chrome_options.add_argument("--headless")           # DO NOT USE — detection is near-instant
+
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+
+try:
+    login(driver)
+    
+    # Option 1: single profile (your original ask)
+    send_friend_request(driver, TARGET_PROFILE_URL)
+    
+    # Option 2: loop over a list of profile URLs
+    # profiles = ["https://www.facebook.com/user1", "https://www.facebook.com/user2", ...]
+    # sent_count = 0
+    # for url in profiles:
+    #     if sent_count >= MAX_REQUESTS:
+    #         break
+    #     if send_friend_request(driver, url):
+    #         sent_count += 1
+    #     human_delay(MIN_DELAY, MAX_DELAY if SLOW_MODE else 8)
+    
+    # Option 3 (smarter): scrape "People You May Know" — but requires more code to scroll + extract links
+    # driver.get("https://www.facebook.com/discover/people/")
+    # ... find buttons, click, etc.
+
+    print("\nDone. Close browser when ready.")
+    input("Press Enter to quit...\n")
+
+finally:
+    # driver.quit()   # comment out if you want to keep browser open to check 2FA / manual actions
+    pass
